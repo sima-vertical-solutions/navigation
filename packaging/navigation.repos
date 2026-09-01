@@ -1,0 +1,69 @@
+# ROS 2 packages nav2 needs that the `ros2` Debian package does not carry.
+# Imported next to this repository's own packages by
+# packaging/build-navigation-deb.sh.
+#
+# Carried over from rosbot.repos in the vdp-simaai-ros2 rover/navigation tree,
+# which the eLxr vdp-navigation recipe feeds to `vcs import`, minus its
+# navigation2 entry -- that source is THIS repository at the ref CI checked
+# out, which is the whole point of building here. Importing it as well would
+# build ros-navigation/navigation2 jazzy and silently ignore the fork.
+#
+# Every entry is pinned to a commit rather than a branch. rosbot.repos tracks
+# branches, and two of them move continuously -- vision_opencv `rolling` and
+# BehaviorTree.CPP `master` -- so the same recipe builds a different package
+# from one week to the next with nothing recorded about why. These SHAs are
+# the branch heads as of 2026-09-01; bump them deliberately.
+repositories:
+  angles:
+    type: git
+    url: https://github.com/ros/angles.git
+    # branch: ros2
+    version: a96224f9ab3ac51fe8fd981c1e1554528dc4345a
+  backward_ros:
+    type: git
+    url: https://github.com/pal-robotics/backward_ros.git
+    # branch: foxy-devel
+    version: 3c71c9f184223f885459ad67a223eb36a5ca347f
+  BehaviorTree.CPP:
+    type: git
+    url: https://github.com/BehaviorTree/BehaviorTree.CPP.git
+    # branch: master -- pinned at tag 4.10.0, which is what jazzy/distribution.yaml
+    # releases as behaviortree_cpp today. Pinning the tag rather than the branch
+    # head means nav2_behavior_tree is built against a named BT.CPP release, and
+    # a BT.CPP API change lands here as a visible edit rather than as a Tuesday.
+    version: 879522c75cce5e67f3dd7b5591bcb96eb3557a42
+  bond_core:
+    type: git
+    url: https://github.com/ros/bond_core.git
+    # branch: ros2
+    version: 44cc20e678f80f8279d2344045e2193540f3988c
+  diagnostics:
+    type: git
+    url: https://github.com/ros/diagnostics.git
+    # branch: ros2-jazzy
+    version: ed64dc9c3b9d048b1699cf81692e6b0e3926c3ac
+  geographic_info:
+    type: git
+    url: https://github.com/ros-geographic-info/geographic_info.git
+    # branch: jazzy
+    version: 24806adc767414eb3a34a58aefeb648ee415b09a
+  robot_localization:
+    type: git
+    url: https://github.com/cra-ros-pkg/robot_localization.git
+    # branch: jazzy-devel
+    version: 3efa714fb9c1ff40966327b7bed7053b2570be4d
+  vision_opencv:
+    type: git
+    url: https://github.com/ros-perception/vision_opencv.git
+    # branch: rolling -- there is no jazzy branch; this is the rosbot.repos
+    # choice, pinned. Same SHA the rtabmap_ros pipeline pins.
+    version: 50f6f1feccc65dd2ef87f863cb812a8aa0789062
+
+# All eight are genuinely reachable from the --packages-up-to closure:
+# nav2_waypoint_follower depends on robot_localization (its GPS waypoint
+# follower calls the navsat transform) and on geographic_msgs; nav2_util on
+# bondcpp; nav2_lifecycle_manager on diagnostic_updater; nav2_costmap_2d's
+# denoise layer on cv_bridge (vision_opencv); nav2_route and eight others on
+# angles; nav2_behavior_tree on behaviortree_cpp; and nav2_route links
+# backward_ros for its crash handler. laser_geometry, the remaining
+# rosbot.repos-era worry, already ships in the ros2 package.

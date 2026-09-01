@@ -54,3 +54,9 @@ cmake-build-debug/
 
 # doxygen docs
 doc/html/
+
+# CI packaging scratch: packaging/build-navigation-deb.sh writes the colcon
+# workspace to .build/ and the finished deb to dist/, both inside the checkout
+# because the build container mounts it at /workspace.
+.build/
+dist/

@@ -1,0 +1,93 @@
+# Build environment for the nav2 Debian package.
+#
+# Stock Debian bookworm and nothing else. Every build dependency comes from
+# Debian; ROS 2 comes from the production Vulcan store over https. There is no
+# eLxr apt source here and no repo.sima.ai apt source, so there is no apt pin
+# either.
+#
+# WHY ros2 COMES FROM VULCAN AND NOT repo.sima.ai
+#   repo.sima.ai/elxr/deb/release serves ros2 2.0.0, the package Bitbucket
+#   built. The ros2 this repository targets is what
+#   sima-vertical-solutions/ros2 publishes to Vulcan, and that pipeline
+#   publishes nowhere else -- so apt would mean building nav2 against a ROS 2
+#   nobody maintains any more. It is also materially different: v2.1.3 carries
+#   the rosbag2 CMA page-cache fix that the repo.sima.ai build does not.
+#
+#   Pinning the version is what keeps this reproducible. `ros2@latest` would
+#   couple this image to another repository's latest.tag and mint a different
+#   image every time that moved; ros2@v${ROS2_VERSION} is an exact release, and
+#   moving to a newer ROS 2 is a visible edit to this file. The store is public
+#   over https, so no credentials are involved.
+#
+# WHY NOT ghcr.io/sima-vertical-solutions/ros2-sdk
+#   It is arm64, public and has most of this already -- but it carries the SDK
+#   sysroot, a rust toolchain, librealsense and a prebuilt vdp-navigation, and
+#   `latest` is unpinned. A prebuilt nav2 on AMENT_PREFIX_PATH is the same trap
+#   the rtabmap_ros pipeline documents: colcon would resolve nav2_bringup's
+#   dependencies against the installed tree rather than the one being built,
+#   and dpkg-shlibdeps would attribute our own SONAMEs to the package we are
+#   replacing. The guard at the bottom of this file asserts it is absent.
+#
+# Run this on an arm64 host. Everything is native: no sysroot, no qemu, which
+# is what lets the colcon invocation in build-navigation-deb.sh drop the ~25
+# cross-compilation -D flags the eLxr recipe needed.
+
+FROM debian:bookworm
+
+SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update --allow-releaseinfo-change && \
+    apt-get install -y --no-install-recommends \
+        ca-certificates curl python3 python3-venv && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY packaging/build-depends.txt /tmp/
+
+# grep strips the comments and blank lines; without it xargs hands apt a "#".
+RUN apt-get update --allow-releaseinfo-change && \
+    grep -vE '^\s*(#|$)' /tmp/build-depends.txt \
+      | xargs apt-get install -y --no-install-recommends && \
+    rm -rf /var/lib/apt/lists/*
+
+# ROS 2 itself, from the production Vulcan store.
+#
+# The installer drops sima-cli in a virtualenv under /root/.sima-cli and wires
+# it up through /root/.bash_profile and a shell alias. A Dockerfile RUN is
+# neither a login shell nor an interactive one, so it sees neither -- hence the
+# absolute path to the binary rather than `sima-cli`.
+ARG ROS2_VERSION=2.1.3
+
+RUN curl -fsSL https://artifacts.neat.sima.ai/sima-cli/linux-mac.sh | bash
+
+# Asserted rather than assumed: if the store stops carrying this release, or
+# hands back a different one, fail here rather than an hour into a colcon build
+# that quietly found nothing to build against.
+#
+# local_setup.bash is the one the build sources -- setup.bash chains to the
+# prefixes recorded when ros2 itself was built, which do not exist here -- but
+# both are checked, because their absence means the layout changed.
+RUN apt-get update --allow-releaseinfo-change && \
+    SIMA_CLI_CHECK_FOR_UPDATE=0 /root/.sima-cli/.venv/bin/sima-cli neat install --prod "ros2@v${ROS2_VERSION}" && \
+    installed="$(dpkg-query -W -f='${Version}' ros2)" && \
+    echo "ros2 installed: ${installed}" && \
+    [[ "${installed}" == "${ROS2_VERSION}" ]] && \
+    test -f /usr/local/ros2/local_setup.bash && \
+    test -f /usr/local/ros2/setup.bash && \
+    rm -rf /var/lib/apt/lists/*
+
+# bookworm packages colcon and vcstool, but both the eLxr nav2 recipe and the
+# ros2 pipeline install them from pip because the packaged colcon lacks
+# extensions the build uses. jinja2 and typeguard are rosidl generator
+# dependencies; lark-parser is the .idl parser.
+RUN pip install --break-system-packages --no-cache-dir \
+        vcstool colcon-common-extensions jinja2 typeguard lark-parser
+
+# This image must NOT contain a prebuilt nav2. If a future edit installs
+# vdp-navigation, colcon resolves nav2_bringup against that instead of the tree
+# being built and shlibdeps attributes our SONAMEs to it.
+RUN test ! -e /usr/local/rosbot_navigation && \
+    test -z "$(find /usr/local /usr/lib -name 'libnav2_util_core.so*' -print -quit)" && \
+    test -e /usr/local/ros2/setup.bash
+
+WORKDIR /workspace
