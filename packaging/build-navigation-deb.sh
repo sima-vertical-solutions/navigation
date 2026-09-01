@@ -161,6 +161,49 @@ ls "${SRC}/navigation2"
 [[ -d "${SRC}/navigation2/nav2_bringup" ]] || die "nav2_bringup did not get copied into the workspace."
 [[ -d "${SRC}/navigation2/nav2_route" ]]   || die "nav2_route did not get copied into the workspace."
 
+# --------------------------------------------------- excising the rviz GUI --
+#
+# nav2_rviz_plugins is an rviz GUI panel and the board has no display, so it is
+# dead weight -- and not merely inert dead weight: it is the only thing in the
+# closure that pulls Qt5, Ogre, OpenGL, X11, assimp and freetype into the build
+# and, through dpkg-shlibdeps, the whole Qt runtime into the deb's Depends.
+# Nothing on the rover ever dlopens it.
+#
+# It is also broken. nav2 1.3.12's DockingPanel declares
+#
+#   private Q_SLOTS:
+#     void onStartup();          # docking_panel.hpp:58
+#
+# and never defines it. moc emits a qt_static_metacall that takes the address
+# of every slot, so libnav2_rviz_plugins.so carries an undefined
+# nav2_rviz_plugins::DockingPanel::onStartup(). A shared library is allowed to
+# link with undefined symbols, so the build passes and the failure only appears
+# when pluginlib dlopens the panel -- which is what packaging/smoke-test.sh
+# caught. Upstream removed the stray declaration on `main`; the fix was never
+# backported to `jazzy`.
+#
+# This mirrors how the rtabmap_ros pipeline excises rtabmap_viz, and for the
+# same three reasons -- skip it, cut the ordering edge, and assert nothing else
+# still wants it:
+#
+#   nav2_bringup build_depends the `navigation2` metapackage, whose
+#   exec_depends list names nav2_rviz_plugins. colcon treats an exec_depend as
+#   an ordering edge, so --packages-up-to would drag the panel in regardless of
+#   --packages-skip. Cut the edge as well as skipping the package.
+log "Excising the rviz GUI panel"
+sed -i '/nav2_rviz_plugins/d' "${SRC}/navigation2/navigation2/package.xml"
+touch "${SRC}/navigation2/nav2_rviz_plugins/COLCON_IGNORE"
+
+# An upstream merge that gives another package a dependency on the panel would
+# otherwise reproduce this an hour into a build, as an undefined symbol in a
+# library nobody meant to ship.
+if remaining="$(grep -rln 'nav2_rviz_plugins' "${SRC}" --include=package.xml | grep -v '/nav2_rviz_plugins/' || true)"; [[ -n "${remaining}" ]]; then
+    echo "These packages still depend on nav2_rviz_plugins, which is deliberately" >&2
+    echo "excluded (rviz GUI panel, headless target, and unloadable in 1.3.12):" >&2
+    printf '  %s\n' ${remaining} >&2
+    exit 1
+fi
+
 # navigation2_rtabmap.patch is NOT applied here.
 #
 # The eLxr recipe applies it, and it does exist -- in the Bitbucket
@@ -218,9 +261,10 @@ set -u
 # a throwaway project. Ten seconds, and the failure names the package instead
 # of naming whichever unlucky ROS package colcon happened to reach first.
 #
-# The list is the union of what nav2's packages find_package, transitively:
-# every C++ node needs rclcpp; nav2_rviz_plugins is the widest, dragging in the
-# whole rviz and resource_retriever chain.
+# The list is the union of what nav2's packages find_package, transitively.
+# The rviz/resource_retriever/urdf chain used to be the widest entry here; it
+# came out with nav2_rviz_plugins, which is why the Qt, Ogre, OpenGL and X11
+# build dependencies came out of build-depends.txt at the same time.
 
 log "Probing the ROS 2 CMake config chain"
 
@@ -236,9 +280,7 @@ foreach(pkg
     rclcpp rclcpp_action rclcpp_lifecycle rclcpp_components
     rcl_interfaces builtin_interfaces
     tf2 tf2_ros tf2_geometry_msgs tf2_eigen
-    laser_geometry message_filters pluginlib class_loader
-    resource_retriever urdf
-    rviz_common rviz_default_plugins rviz_rendering rviz_ogre_vendor)
+    laser_geometry message_filters pluginlib class_loader)
   find_package(${pkg} REQUIRED)
   message(STATUS "probe ok: ${pkg}")
 endforeach()
@@ -258,6 +300,7 @@ colcon build \
     --install-base "${STAGE}${INSTALL_PREFIX}" \
     --merge-install \
     --packages-up-to nav2_bringup nav2_route \
+    --packages-skip nav2_rviz_plugins \
     --parallel-workers "${COLCON_WORKERS}" \
     --event-handlers console_direct+ \
     --cmake-args \
@@ -409,6 +452,12 @@ for pkg in nav2_bringup nav2_route nav2_bt_navigator nav2_controller nav2_planne
            nav2_regulated_pure_pursuit_controller nav2_mppi_controller; do
     [[ -d "${STAGE}${INSTALL_PREFIX}/share/${pkg}" ]] || die "${pkg} is missing from the staged tree."
 done
+
+# nav2_rviz_plugins must NOT be there. If the excision above silently stopped
+# working the deb would grow a Qt GUI, a pile of Qt runtime dependencies and a
+# library that fails to dlopen.
+[[ ! -d "${STAGE}${INSTALL_PREFIX}/share/nav2_rviz_plugins" ]] \
+    || die "nav2_rviz_plugins was built despite being excluded."
 
 # The two launch entry points the rover sources by name.
 for f in launch/navigation_launch.py params/nav2_params.yaml; do

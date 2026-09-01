@@ -22,15 +22,16 @@ ros2
 
 # --- reached through the ROS 2 libraries this tree links, not directly ---
 #
-# nav2_bringup build_depends the navigation2 metapackage, which exec_depends
-# nav2_rviz_plugins; that links librviz_rendering (assimp) and librviz_common
-# (yaml-cpp), and liblttng-ust is the rcl tracepoint provider that every
-# rclcpp node pulls in. All three live in /usr/local/ros2 and belong to the
-# ros2 package, which declares libassimp5 and liblttng-ust1 itself as of 2.1.3
-# but still not libyaml-cpp0.7. Declaring all three keeps this package
-# installable on a stock bookworm even if ros2's own declarations change again,
-# which is exactly what packaging/smoke-test.sh asserts.
-libassimp5
+# liblttng-ust is the rcl tracepoint provider that every rclcpp node pulls in,
+# and yaml-cpp comes in through yaml_cpp_vendor, which nav2_map_server and
+# opennav_docking both use. Both live in /usr/local/ros2 and belong to the ros2
+# package, which declares liblttng-ust1 itself as of 2.1.3 but still not
+# libyaml-cpp0.7. Declaring both keeps this package installable on a stock
+# bookworm even if ros2's own declarations change again, which is exactly what
+# packaging/smoke-test.sh asserts.
+#
+# libassimp5 used to be here too. It was reached only through librviz_rendering,
+# i.e. only through nav2_rviz_plugins, which is now excised from the build.
 liblttng-ust1
 libyaml-cpp0.7
 

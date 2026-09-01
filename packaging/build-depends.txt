@@ -68,8 +68,12 @@ libssl-dev
 # Findyaml.cmake, so find_package(rclcpp) -> rcl -> rcl_yaml_param_parser
 # chains to the system libyaml that ros2 was built against.
 libyaml-dev
-# resource_retriever, which nav2_rviz_plugins depends on directly, resolves
-# libcurl_vendor and find_package(CURL REQUIRED).
+# resource_retriever resolves libcurl_vendor and find_package(CURL REQUIRED).
+# That chain reached this workspace only through nav2_rviz_plugins, which is
+# now excised, so this is very likely no longer needed. Kept deliberately: a
+# 400 KB -dev package is a poor trade against a cold rebuild to discover that
+# some other ros2 config also chains CURL. Drop it when someone is trimming the
+# image and can afford to be wrong once.
 libcurl4-openssl-dev
 # Header-only, and no exported config was found that requires it -- carried
 # across from the ros2 list as cheap insurance for the Fast-DDS/rmw family,
@@ -79,7 +83,6 @@ libasio-dev
 python3-packaging
 
 # --- libraries the nav2 packages link against ---
-libassimp-dev
 libboost-filesystem-dev
 libboost-program-options-dev
 libboost-python-dev
@@ -93,12 +96,7 @@ libconsole-bridge-dev
 libeigen3-dev
 libfcl-dev
 libfmt-dev
-libfreetype-dev
 libgeographiclib-dev
-libglew-dev
-libgl-dev
-libgl1-mesa-dev
-libglu1-mesa-dev
 # nav2_map_server loads and saves map images through GraphicsMagick.
 libgraphicsmagick++1-dev
 liblapack-dev
@@ -125,28 +123,20 @@ libxsimd-dev
 libxtensor-dev
 xtl-dev
 
-# --- rviz and Qt ---
+# --- no rviz, no Qt, no OpenGL, no X11 ---
 #
-# nav2_bringup build_depends the `navigation2` metapackage, whose exec_depends
-# list includes nav2_rviz_plugins, and colcon treats an exec_depend as an
-# ordering edge -- so --packages-up-to nav2_bringup builds the rviz plugins
-# whether or not the board ever displays anything. They need the rviz_rendering
-# headers, which need Ogre, and the panel needs Qt5.
-libogre-1.12-dev
-libqt5opengl5-dev
-libqt5svg5-dev
-qt5-qmake
-qtbase5-dev
-libx11-dev
-libxaw7-dev
-libxcomposite-dev
-libxcursor-dev
-libxext-dev
-libxi-dev
-libxinerama-dev
-libxrandr-dev
-libxrender-dev
-libxt-dev
+# There used to be a block of fifteen Qt5/Ogre/X11/OpenGL -dev packages here,
+# plus libassimp-dev, libfreetype-dev and the mesa headers above. Every one of
+# them existed for a single package: nav2_rviz_plugins, an rviz GUI panel,
+# which packaging/build-navigation-deb.sh now excises -- the board is headless,
+# and in nav2 1.3.12 the panel does not even dlopen. An exhaustive grep of
+# every package.xml in this repository and in packaging/navigation.repos finds
+# no other consumer of rviz, Qt, Ogre, OpenGL, X11, assimp or freetype, so the
+# whole block came out with it.
+#
+# The eLxr recipe carries all of them because it builds the panel. Keeping them
+# here would mean a slower image and a longer list for a future reader to
+# distrust.
 
 # --- python build tooling ---
 #
