@@ -32,6 +32,52 @@ dpkg-dev
 git
 pkg-config
 
+# --- ROS 2 build-time transitive deps that NO nav2 manifest declares ---
+#
+# This class is why run 33548484724 died in 6.6 seconds. Deriving the build
+# dependencies from nav2's package.xml files and the eLxr bdeps list misses it
+# entirely, twice over:
+#
+#   * no nav2 manifest mentions any of these, because nav2 does not use them.
+#     They are reached through the CMake config files that ROS 2 exports:
+#     find_package(rclcpp) chains to rmw_fastrtps_cpp, whose fastrtps-config.cmake
+#     expands a FASTRTPS_INSTALLER_OPT_DEPS block into find_package(OpenSSL
+#     REQUIRED). Every C++ package in the workspace resolves an RMW, so every
+#     C++ package needs OpenSSL's headers -- and diagnostic_updater, the first
+#     one colcon reached, is where it surfaced.
+#
+#   * the eLxr recipe does not list them either. Its cross-build sysroot
+#     happened to contain them, so the recipe never had to name them. Anything
+#     the sysroot supplied for free is invisible in that list -- the same blind
+#     spot that hid build-essential and dpkg-dev above.
+#
+# The authority for this class is packaging/build-depends.txt in
+# sima-vertical-solutions/ros2 on main, which carries them because ROS 2 itself
+# had to. Only the ones with a chain into this workspace are pulled across;
+# that repository's linters, test frameworks, rqt/PyQt stack, rosbag2 codecs
+# and Xorg metapackages are not build dependencies of nav2.
+#
+# packaging/build-navigation-deb.sh now probes this whole class with a
+# throwaway CMake project before it starts colcon, so a future gap costs ten
+# seconds rather than an hour of cold build.
+
+# Fast-DDS exports find_package(OpenSSL REQUIRED); reached from every C++
+# package via get_default_rmw_implementation -> rmw_fastrtps_cpp.
+libssl-dev
+# libyaml_vendor does ament_export_dependencies(yaml) and ships its own
+# Findyaml.cmake, so find_package(rclcpp) -> rcl -> rcl_yaml_param_parser
+# chains to the system libyaml that ros2 was built against.
+libyaml-dev
+# resource_retriever, which nav2_rviz_plugins depends on directly, resolves
+# libcurl_vendor and find_package(CURL REQUIRED).
+libcurl4-openssl-dev
+# Header-only, and no exported config was found that requires it -- carried
+# across from the ros2 list as cheap insurance for the Fast-DDS/rmw family,
+# because a miss in this class costs a whole cold build to discover.
+libasio-dev
+# ament_cmake and the colcon extensions import it.
+python3-packaging
+
 # --- libraries the nav2 packages link against ---
 libassimp-dev
 libboost-filesystem-dev

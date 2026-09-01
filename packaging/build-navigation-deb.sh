@@ -203,6 +203,55 @@ set -u
 [[ -n "${AMENT_PREFIX_PATH:-}" ]] \
     || die "AMENT_PREFIX_PATH is empty after sourcing ${ROS2_PREFIX}/local_setup.bash; colcon would find no ROS 2 at all."
 
+# ------------------------------------------- ROS 2 config-chain preflight --
+#
+# ROS 2's exported CMake config files pull in system packages that appear in no
+# manifest anywhere: find_package(rclcpp) chains through
+# get_default_rmw_implementation to rmw_fastrtps_cpp, whose fastrtps-config.cmake
+# does find_package(OpenSSL REQUIRED), and libyaml_vendor exports
+# find_package(yaml). Nothing in nav2's package.xml files or in the eLxr bdeps
+# list mentions either -- the eLxr sysroot simply happened to contain them.
+#
+# The first build here died on exactly that, 6.6 seconds into colcon, on
+# diagnostic_updater. It costs the same hour of cold build to discover the
+# second missing one as the first, so resolve the whole chain up front against
+# a throwaway project. Ten seconds, and the failure names the package instead
+# of naming whichever unlucky ROS package colcon happened to reach first.
+#
+# The list is the union of what nav2's packages find_package, transitively:
+# every C++ node needs rclcpp; nav2_rviz_plugins is the widest, dragging in the
+# whole rviz and resource_retriever chain.
+
+log "Probing the ROS 2 CMake config chain"
+
+PROBE="${WORKDIR}/probe"
+rm -rf "${PROBE}"
+mkdir -p "${PROBE}/src" "${PROBE}/build"
+
+cat > "${PROBE}/src/CMakeLists.txt" <<'PROBE_EOF'
+cmake_minimum_required(VERSION 3.16)
+project(ros2_config_probe LANGUAGES CXX)
+foreach(pkg
+    ament_cmake ament_cmake_ros
+    rclcpp rclcpp_action rclcpp_lifecycle rclcpp_components
+    rcl_interfaces builtin_interfaces
+    tf2 tf2_ros tf2_geometry_msgs tf2_eigen
+    laser_geometry message_filters pluginlib class_loader
+    resource_retriever urdf
+    rviz_common rviz_default_plugins rviz_rendering rviz_ogre_vendor)
+  find_package(${pkg} REQUIRED)
+  message(STATUS "probe ok: ${pkg}")
+endforeach()
+PROBE_EOF
+
+if ! cmake -S "${PROBE}/src" -B "${PROBE}/build" > "${PROBE}/cmake.log" 2>&1; then
+    echo "--- ROS 2 CMake config chain is not satisfiable in this container ---" >&2
+    tail -40 "${PROBE}/cmake.log" >&2
+    echo "---" >&2
+    die "A system -dev package that ROS 2's exported CMake configs require is missing. Add it to packaging/build-depends.txt; see the transitive-deps section there."
+fi
+grep -c 'probe ok:' "${PROBE}/cmake.log" | xargs printf '%s ROS 2 config packages resolved\n'
+
 colcon build \
     --base-paths "${SRC}" \
     --build-base "${BUILD}" \
