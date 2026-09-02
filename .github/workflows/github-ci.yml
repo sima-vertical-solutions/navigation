@@ -23,16 +23,20 @@ name: Build navigation package (GitHub runners)
 on:
   push:
     branches:
-      - jazzy
-      - feat/cicd_build
+      # Every branch except main. main is upstream's rolling line (nav2 1.5.x),
+      # not the Jazzy line this packaging targets -- and a bare
+      # `sima-cli neat install navigation` resolves against <namespace>/main,
+      # so publishing from it would put Rolling under the most convenient name.
+      - '**'
+      - '!main'
     tags:
       - v*
   workflow_dispatch:
     inputs:
       publish:
-        description: Publish to Vulcan even though this is not jazzy or a tag.
+        description: Publish to Vulcan. On by default; clear it for a build-only run.
         required: false
-        default: false
+        default: true
         type: boolean
       vulcan_env:
         description: Vulcan store to publish to. Blank uses the VULCAN_ENV repo variable, then production.
@@ -72,16 +76,24 @@ jobs:
         id: gate
         run: |
           set -euo pipefail
-          # jazzy and tags publish; any other branch publishes only when
-          # dispatched with publish=true. feat/cicd_build exists to iterate on
-          # the build, and an iteration must not push half-working artifacts
-          # into the production store.
+          # Every branch and tag publishes. Vulcan namespaces artifacts by ref,
+          # so a feature branch writes to its own prefix and its own latest.tag
+          # and cannot disturb another ref. The run that proves an artifact is
+          # the run that should ship it.
           #
-          # `main` is not in this list on purpose -- see the header.
-          if [[ "${GITHUB_REF}" == refs/tags/* || "${GITHUB_REF}" == refs/heads/jazzy ]]; then
-            echo "should_publish=true" >> "${GITHUB_OUTPUT}"
+          # main never reaches here -- it is excluded from the push trigger,
+          # because it is upstream's rolling line. The 1.3.x version guard
+          # would catch it anyway, but not triggering is the stronger stop.
+          #
+          # A dispatch can opt out with publish=false. pull_request never
+          # publishes: a fork PR has no OIDC and unreviewed code should not
+          # reach the store.
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            echo "should_publish=${{ inputs.publish }}" >> "${GITHUB_OUTPUT}"
+          elif [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            echo "should_publish=false" >> "${GITHUB_OUTPUT}"
           else
-            echo "should_publish=${{ inputs.publish || false }}" >> "${GITHUB_OUTPUT}"
+            echo "should_publish=true" >> "${GITHUB_OUTPUT}"
           fi
           cat "${GITHUB_OUTPUT}"
 
