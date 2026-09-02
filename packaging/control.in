@@ -1,0 +1,53 @@
+# Template for the navigation package's Debian control file.
+#
+# Carries over the deb_info block from the vdp-navigation recipe in
+# swsoc-elxr-config (boards/arm64/simaai/packages/vdp-navigation/vdp-navigation.yaml).
+# Placeholders are substituted by packaging/build-navigation-deb.sh:
+#
+#   @VERSION@         nav2_bringup/package.xml <version>, plus +<date>.g<sha>
+#   @ARCH@            the build host's Debian architecture
+#   @INSTALLED_SIZE@  measured from the staged tree
+#   @DEPENDS@         dpkg-shlibdeps, plus packaging/runtime-depends.txt
+#
+# WHY `navigation` AND NOT `vdp-navigation`
+#   The eLxr package is versioned with the Palette release number -- 2.1.3 --
+#   while this one is versioned with nav2's own, 1.3.12. Keeping the old name
+#   would ask apt to accept 1.3.12 as an upgrade of 2.1.3, which it correctly
+#   refuses, so a devkit would silently keep the Bitbucket build. A new name
+#   plus Conflicts/Replaces makes apt do the right thing: remove the old
+#   package, install this one. Provides keeps anything that already
+#   `Depends: vdp-navigation` satisfiable.
+#
+#   Conflicts is kept even though the two no longer share a file. This package
+#   installs under /usr/local/navigation while vdp-navigation uses
+#   /usr/local/rosbot_navigation, so dpkg would happily hold both -- and that
+#   is the problem: two Nav2 installations, two setup files, and whichever the
+#   shell happened to source last winning. Conflicts makes apt remove the old
+#   one rather than leave an ambiguous board.
+#
+# Lines beginning with # are stripped before the control file is written.
+Package: navigation
+Version: @VERSION@
+Architecture: @ARCH@
+Section: robotics
+Priority: optional
+Maintainer: SiMa.ai Technologies <noreply@sima.ai>
+Installed-Size: @INSTALLED_SIZE@
+Depends: @DEPENDS@
+Conflicts: vdp-navigation
+Replaces: vdp-navigation
+Provides: vdp-navigation
+Description: SiMa.ai Nav2 / ROS2 Navigation packages
+ The ROS 2 Jazzy Navigation2 stack, built natively for arm64 from the
+ sima-vertical-solutions/navigation fork and installed under
+ /usr/local/navigation. Note this is NOT the /usr/local/rosbot_navigation the
+ eLxr package used; anything sourcing that path has to be updated.
+ .
+ Built with --packages-up-to nav2_bringup nav2_route, which is the closure the
+ board actually loads: the planners, controllers, costmap layers, behaviour
+ tree, lifecycle manager, route server and their bringup launch files.
+ .
+ Built from the `jazzy` branch, which is nav2 1.3.12. The fork's default branch
+ is `main`, inherited from upstream, and `main` is nav2 1.5.0 -- the Rolling
+ development line, which does not match the Jazzy ros2 package this links
+ against.

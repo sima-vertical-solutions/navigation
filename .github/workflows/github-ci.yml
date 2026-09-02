@@ -1,0 +1,373 @@
+name: Build navigation package (GitHub runners)
+
+# Builds the nav2 Debian package on GitHub's own ARM64 runners and publishes it
+# to Vulcan.
+#
+# Same shape as sima-vertical-solutions/ros2's github-ci.yml, which is the
+# working precedent, and as rtabmap_ros's, which is the closer analogue: build
+# wherever, publish to Vulcan. It needs no runner-fleet onboarding -- only the
+# artifact namespace and publisher role, which any Vulcan publisher needs
+# regardless of where it builds.
+#
+# BUILT FROM `jazzy`, NOT `main`
+#   This fork inherited ros-navigation/navigation2's default branch, and
+#   upstream's `main` is the Rolling development line: nav2 1.5.0. The Jazzy
+#   release line is the `jazzy` branch, nav2 1.3.12, and the `ros2` package this
+#   links against is Jazzy. So `main` is deliberately absent from the push
+#   triggers and from the publish gate below, and packaging/build-navigation-deb.sh
+#   refuses to build anything whose nav2_bringup version is not 1.3.x.
+#
+# Publishing is deliberately NOT wired to every push: a branch build publishes
+# nothing unless asked. See `should_publish` below.
+
+on:
+  push:
+    branches:
+      # Every branch except main. main is upstream's rolling line (nav2 1.5.x),
+      # not the Jazzy line this packaging targets -- and a bare
+      # `sima-cli neat install navigation` resolves against <namespace>/main,
+      # so publishing from it would put Rolling under the most convenient name.
+      - '**'
+      - '!main'
+    tags:
+      - v*
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish to Vulcan. On by default; clear it for a build-only run.
+        required: false
+        default: true
+        type: boolean
+      vulcan_env:
+        description: Vulcan store to publish to. Blank uses the VULCAN_ENV repo variable, then production.
+        required: false
+        default: ""
+        type: choice
+        options: ["", "prod", "stg"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type == 'branch' }}
+
+jobs:
+  build:
+    name: Build the navigation deb (arm64)
+    runs-on: ubuntu-24.04-arm
+    # GitHub's ceiling is 360. A cold build is the whole nav2 stack plus
+    # BehaviorTree.CPP; nav2_mppi_controller alone is the long pole.
+    timeout-minutes: 350
+    outputs:
+      version: ${{ steps.build-check.outputs.version }}
+      should_publish: ${{ steps.gate.outputs.should_publish }}
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v5
+        with:
+          # The version is <version> from nav2_bringup/package.xml plus a
+          # git-describe check for a v* tag. A shallow clone has no tags.
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Decide whether this run publishes
+        id: gate
+        run: |
+          set -euo pipefail
+          # Every branch and tag publishes. Vulcan namespaces artifacts by ref,
+          # so a feature branch writes to its own prefix and its own latest.tag
+          # and cannot disturb another ref. The run that proves an artifact is
+          # the run that should ship it.
+          #
+          # main never reaches here -- it is excluded from the push trigger,
+          # because it is upstream's rolling line. The 1.3.x version guard
+          # would catch it anyway, but not triggering is the stronger stop.
+          #
+          # A dispatch can opt out with publish=false. pull_request never
+          # publishes: a fork PR has no OIDC and unreviewed code should not
+          # reach the store.
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            echo "should_publish=${{ inputs.publish }}" >> "${GITHUB_OUTPUT}"
+          elif [[ "${GITHUB_EVENT_NAME}" == "pull_request" ]]; then
+            echo "should_publish=false" >> "${GITHUB_OUTPUT}"
+          else
+            echo "should_publish=true" >> "${GITHUB_OUTPUT}"
+          fi
+          cat "${GITHUB_OUTPUT}"
+
+      - name: Refuse to build the rolling line
+        run: |
+          set -euo pipefail
+          # The build script asserts this too, an hour later and inside a
+          # container. Say it here, in five seconds, where the log is obvious.
+          version="$(sed -n 's:.*<version>\(.*\)</version>.*:\1:p' nav2_bringup/package.xml | head -1)"
+          echo "nav2_bringup ${version}"
+          case "${version}" in
+            1.3.*) ;;
+            *) echo "::error::nav2 ${version} is not the Jazzy line (1.3.x). main is upstream's Rolling branch; build from jazzy." ; exit 1 ;;
+          esac
+
+      - name: Reclaim disk
+        run: |
+          set -euo pipefail
+          echo "before:"; df -h /
+          sudo rm -rf \
+            /usr/local/lib/android \
+            /usr/share/dotnet \
+            /usr/share/swift \
+            /opt/hostedtoolcache/CodeQL \
+            /usr/local/share/powershell || true
+          sudo docker image prune --all --force >/dev/null 2>&1 || true
+          echo "after:"; df -h /
+
+      # What determines the staged tree is the nav2 sources, the companion
+      # repos, the build recipe, the build image and the build dependencies --
+      # and nothing else. Keying on those means a packaging fix (control.in,
+      # runtime-depends.txt, smoke-test.sh, this file) reuses a tree that took
+      # most of an hour to compile. That single lever is what took the ros2 and
+      # rtabmap_ros pipelines from ~35 minutes an iteration to ~4.
+      #
+      # `git ls-tree HEAD` prints each top-level entry's tree object, so this
+      # hashes the exact content that gets copied into the workspace without
+      # walking it, and without dragging in packaging/ -- whose whole point is
+      # to change without invalidating the build.
+      - name: Compute the staged-tree cache key
+        id: stage-key
+        run: |
+          set -euo pipefail
+          src_hash="$(git ls-tree HEAD | awk '$4 ~ /^nav2_/ || $4 == "navigation2" {print $3, $4}' | sha256sum | cut -c1-16)"
+          echo "src_hash=${src_hash}" >> "${GITHUB_OUTPUT}"
+          echo "nav2 source tree: ${src_hash}"
+
+      # restore/save rather than actions/cache, because actions/cache only
+      # writes its cache in a post step that is skipped when the job fails --
+      # and a failing iteration here fails AFTER the colcon build, throwing
+      # away the expensive part every time.
+      - name: Restore the staged colcon tree
+        id: stage-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: .build/navigation/stage
+          key: nav2-stage-${{ steps.stage-key.outputs.src_hash }}-${{ hashFiles('packaging/navigation.repos', 'packaging/build-navigation-deb.sh', 'packaging/Dockerfile.build', 'packaging/build-depends.txt') }}
+
+      - name: Reuse the staged tree
+        if: steps.stage-cache.outputs.cache-hit == 'true'
+        run: |
+          set -euo pipefail
+          echo "SKIP_COLCON=1" >> "${GITHUB_ENV}"
+          du -sh .build/navigation/stage
+
+      - name: Build the container
+        run: |
+          set -euo pipefail
+          docker build \
+            --file packaging/Dockerfile.build \
+            --tag navigation-build:${GITHUB_SHA} \
+            .
+          df -h /
+
+      - name: Build the package
+        run: |
+          set -euo pipefail
+
+          # The checkout is owned by the runner user while the container runs
+          # as root, so git would reject the repository as "dubious ownership"
+          # and the version would silently lose its commit suffix -- minting
+          # the same "nogit" version for every build.
+          docker run --rm \
+            --volume "${PWD}:/workspace" \
+            --workdir /workspace \
+            --env GIT_CONFIG_COUNT=1 \
+            --env GIT_CONFIG_KEY_0=safe.directory \
+            --env GIT_CONFIG_VALUE_0=/workspace \
+            --env SKIP_COLCON="${SKIP_COLCON:-}" \
+            navigation-build:${GITHUB_SHA} \
+            packaging/build-navigation-deb.sh
+
+          df -h /
+
+      # dist/ and .build/ are root-owned because the container ran as root, so
+      # the runner user can neither read them for upload nor write the cache.
+      - name: Make the build output readable by the runner user
+        if: always()
+        run: |
+          set -euo pipefail
+          sudo chown -R "$(id -u):$(id -g)" dist .build 2>/dev/null || true
+          ls -l dist 2>/dev/null || true
+          df -h /
+
+      - name: Check what was produced
+        id: build-check
+        run: |
+          set -euo pipefail
+          deb="$(find dist -maxdepth 1 -name 'navigation_*.deb' -print -quit)"
+          test -n "${deb}" || { echo "No navigation package was produced." >&2; exit 1; }
+          version="$(dpkg-deb --field "${deb}" Version)"
+          # Every deb carries +<date>.g<sha> so a rebuild never reuses a
+          # version. "gnogit" means git was unreadable in the container and the
+          # suffix identifies nothing -- publishing that would collide with
+          # every subsequent build.
+          case "${version}" in
+            *.gnogit) echo "The version has no commit in it; git was unreadable in the build container." >&2; exit 1 ;;
+          esac
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "navigation ${version}: ${deb}"
+
+      - name: Add sima-cli package metadata
+        run: |
+          set -euo pipefail
+          python3 -m venv .venv
+          .venv/bin/pip install --quiet --upgrade pip
+          .venv/bin/pip install --quiet sima-cli
+
+          cp packaging/install-package.sh dist/
+
+          SIMA_CLI_CHECK_FOR_UPDATE=0 .venv/bin/sima-cli packages build dist \
+            --name navigation \
+            --version "${{ steps.build-check.outputs.version }}" \
+            --description "ROS 2 Jazzy Navigation2 (nav2) packages for Modalix, built from the jazzy branch" \
+            --install-script install-package.sh \
+            --host-platform linux \
+            --host-arch arm64 \
+            --board-platform modalix
+
+          cat dist/metadata.json
+
+      - name: Upload the package
+        uses: actions/upload-artifact@v4
+        with:
+          name: navigation-deb-arm64
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+      # `always()` on purpose: the staged tree is worth banking even when a
+      # later step failed, which is the whole reason for the restore/save split.
+      # hashFiles() is not used to test for it -- it would hash a hundred
+      # thousand files to answer "does this directory exist".
+      - name: Check whether there is a staged tree to bank
+        id: stage-present
+        if: always() && steps.stage-cache.outputs.cache-hit != 'true'
+        run: |
+          set -euo pipefail
+          if [[ -d .build/navigation/stage/usr/local/navigation ]]; then
+            echo "present=true" >> "${GITHUB_OUTPUT}"
+            du -sh .build/navigation/stage
+          else
+            echo "present=false" >> "${GITHUB_OUTPUT}"
+            echo "no staged tree; colcon did not get far enough"
+          fi
+
+      - name: Save the staged colcon tree
+        if: always() && steps.stage-cache.outputs.cache-hit != 'true' && steps.stage-present.outputs.present == 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .build/navigation/stage
+          key: nav2-stage-${{ steps.stage-key.outputs.src_hash }}-${{ hashFiles('packaging/navigation.repos', 'packaging/build-navigation-deb.sh', 'packaging/Dockerfile.build', 'packaging/build-depends.txt') }}
+
+  test-install:
+    name: Install the package in clean bookworm
+    needs: build
+    runs-on: ubuntu-24.04-arm
+    steps:
+      # Needed for packaging/smoke-test.sh; the artifact carries only the deb.
+      - name: Check out
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 1
+
+      - name: Download the package
+        uses: actions/download-artifact@v4
+        with:
+          name: navigation-deb-arm64
+          path: dist
+
+      - name: Install and smoke-test
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            --volume "${PWD}/dist:/dist:ro" \
+            --volume "${PWD}/packaging:/packaging:ro" \
+            debian:bookworm /packaging/smoke-test.sh
+
+  resolve-config:
+    name: Resolve Vulcan config
+    needs: test-install
+    permissions:
+      contents: read
+      id-token: write
+    uses: sima-neat/.github/.github/workflows/vulcan-resolve-config.yml@main
+    with:
+      vulcan_env: ${{ inputs.vulcan_env || vars.VULCAN_ENV || 'production' }}
+
+  publish:
+    name: Publish to Vulcan
+    # build -> test -> publish. Publishing an untested artifact is wrong, so
+    # test-install gates this.
+    if: needs.build.outputs.should_publish == 'true'
+    needs:
+      - build
+      - test-install
+      - resolve-config
+    permissions:
+      contents: read
+      id-token: write
+      actions: write
+    uses: sima-neat/.github/.github/workflows/vulcan-publish-artifacts.yml@main
+    with:
+      aws_region: ${{ needs.resolve-config.outputs.aws_region }}
+      environment_name: ${{ needs.resolve-config.outputs.vulcan_env }}
+      bucket: ${{ needs.resolve-config.outputs.artifact_bucket }}
+      role_to_assume: ${{ needs.resolve-config.outputs.artifact_publisher_role_arn }}
+      sse_kms_key_id: ${{ needs.resolve-config.outputs.artifact_kms_key_id }}
+      cloudfront_distribution_id: ${{ needs.resolve-config.outputs.artifact_cloudfront_distribution_id }}
+      # Root of the commit prefix, so the install target is "navigation@<ref>"
+      # rather than "navigation/arm64@<ref>".
+      artifact_folder: "."
+
+      artifact_pattern: navigation-deb-arm64
+      artifact_glob: "*"
+      # the deb + install-package.sh + metadata.json
+      min_artifact_count: 3
+      publish_manifest: true
+      cleanup_github_artifacts: true
+
+  promote-latest:
+    name: Promote latest.tag
+    if: needs.build.outputs.should_publish == 'true'
+    needs:
+      - build
+      - resolve-config
+      - publish
+    permissions:
+      contents: read
+      id-token: write
+    uses: sima-neat/.github/.github/workflows/vulcan-update-latest-artifacts.yml@main
+    with:
+      aws_region: ${{ needs.resolve-config.outputs.aws_region }}
+      environment_name: ${{ needs.resolve-config.outputs.vulcan_env }}
+      bucket: ${{ needs.resolve-config.outputs.artifact_bucket }}
+      role_to_assume: ${{ needs.resolve-config.outputs.artifact_publisher_role_arn }}
+      sse_kms_key_id: ${{ needs.resolve-config.outputs.artifact_kms_key_id }}
+      artifact_folder: "."
+
+      validate_manifest: true
+
+# THE INSTALL TARGET CARRIES THE REF, AND HERE THAT MATTERS MORE THAN USUAL.
+#
+# Vulcan publishes under the git ref, so a build from this branch lands under
+# `feat/cicd_build` and one from the release line lands under `jazzy`. The
+# install target is therefore `navigation@jazzy`, never a bare `navigation`.
+#
+# A bare name resolves against <namespace>/main/latest.tag -- and `main` in this
+# fork is upstream's Rolling line, nav2 1.5.0. So the bare form would not merely
+# fail to resolve, it would resolve to the wrong ROS distro. Renaming `main` to
+# fix that is not an option: it is upstream's branch and renaming it destroys
+# the tracking relationship with ros-navigation/navigation2.
+#
+# A slash in the ref is percent-encoded into the S3 key and encoded AGAIN for
+# the CloudFront viewer path, so `feat/cicd_build` lands under
+# `feat%252Fcicd_build`. `jazzy` and a v* tag carry no slash and install
+# cleanly.

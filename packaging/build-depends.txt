@@ -1,0 +1,157 @@
+# Build dependencies for the nav2 packages this repository ships, installed by
+# packaging/Dockerfile.build.
+#
+# Source of truth is the bdeps list in swsoc-elxr-config
+# boards/arm64/simaai/packages/vdp-navigation/vdp-navigation.yaml, with two
+# edits:
+#
+#   * the :arm64 / :all suffixes are dropped. That recipe cross-compiles from
+#     x86 against an arm64 sysroot, so every entry had to name an architecture.
+#     This build is native on ubuntu-24.04-arm, so there is no multiarch to
+#     disambiguate.
+#
+#   * the toolchain is added back. The eLxr recipe assumed a cross toolchain
+#     was already in the builder image, so build-essential, dpkg-dev,
+#     pkg-config and git appear nowhere in its bdeps -- and dpkg-dev in
+#     particular is not optional here: dpkg-shlibdeps and dpkg-architecture
+#     come from it and this script cannot produce a deb without them.
+#
+# `ros2` was also in that list. It is not here, because it does not come from
+# apt any more -- see the Vulcan install in packaging/Dockerfile.build.
+#
+# Every entry was checked against
+# dists/bookworm/main/binary-arm64/Packages.gz, not packages.debian.org, which
+# answers 200 for names that do not exist.
+
+# --- toolchain, absent from the eLxr list because the sysroot supplied it ---
+build-essential
+ca-certificates
+cmake
+curl
+dpkg-dev
+git
+pkg-config
+
+# --- ROS 2 build-time transitive deps that NO nav2 manifest declares ---
+#
+# This class is why run 33548484724 died in 6.6 seconds. Deriving the build
+# dependencies from nav2's package.xml files and the eLxr bdeps list misses it
+# entirely, twice over:
+#
+#   * no nav2 manifest mentions any of these, because nav2 does not use them.
+#     They are reached through the CMake config files that ROS 2 exports:
+#     find_package(rclcpp) chains to rmw_fastrtps_cpp, whose fastrtps-config.cmake
+#     expands a FASTRTPS_INSTALLER_OPT_DEPS block into find_package(OpenSSL
+#     REQUIRED). Every C++ package in the workspace resolves an RMW, so every
+#     C++ package needs OpenSSL's headers -- and diagnostic_updater, the first
+#     one colcon reached, is where it surfaced.
+#
+#   * the eLxr recipe does not list them either. Its cross-build sysroot
+#     happened to contain them, so the recipe never had to name them. Anything
+#     the sysroot supplied for free is invisible in that list -- the same blind
+#     spot that hid build-essential and dpkg-dev above.
+#
+# The authority for this class is packaging/build-depends.txt in
+# sima-vertical-solutions/ros2 on main, which carries them because ROS 2 itself
+# had to. Only the ones with a chain into this workspace are pulled across;
+# that repository's linters, test frameworks, rqt/PyQt stack, rosbag2 codecs
+# and Xorg metapackages are not build dependencies of nav2.
+#
+# packaging/build-navigation-deb.sh now probes this whole class with a
+# throwaway CMake project before it starts colcon, so a future gap costs ten
+# seconds rather than an hour of cold build.
+
+# Fast-DDS exports find_package(OpenSSL REQUIRED); reached from every C++
+# package via get_default_rmw_implementation -> rmw_fastrtps_cpp.
+libssl-dev
+# libyaml_vendor does ament_export_dependencies(yaml) and ships its own
+# Findyaml.cmake, so find_package(rclcpp) -> rcl -> rcl_yaml_param_parser
+# chains to the system libyaml that ros2 was built against.
+libyaml-dev
+# resource_retriever resolves libcurl_vendor and find_package(CURL REQUIRED).
+# That chain reached this workspace only through nav2_rviz_plugins, which is
+# now excised, so this is very likely no longer needed. Kept deliberately: a
+# 400 KB -dev package is a poor trade against a cold rebuild to discover that
+# some other ros2 config also chains CURL. Drop it when someone is trimming the
+# image and can afford to be wrong once.
+libcurl4-openssl-dev
+# Header-only, and no exported config was found that requires it -- carried
+# across from the ros2 list as cheap insurance for the Fast-DDS/rmw family,
+# because a miss in this class costs a whole cold build to discover.
+libasio-dev
+# ament_cmake and the colcon extensions import it.
+python3-packaging
+
+# --- libraries the nav2 packages link against ---
+libboost-filesystem-dev
+libboost-program-options-dev
+libboost-python-dev
+libboost-serialization-dev
+libboost-system-dev
+libboost-thread-dev
+libcap-dev
+# nav2_smac_planner's smoother and nav2_constrained_smoother optimise with Ceres.
+libceres-dev
+libconsole-bridge-dev
+libeigen3-dev
+libfcl-dev
+libfmt-dev
+libgeographiclib-dev
+# nav2_map_server loads and saves map images through GraphicsMagick.
+libgraphicsmagick++1-dev
+liblapack-dev
+liblttng-ust-dev
+# nav2_route indexes its graph with nanoflann and parses it with nlohmann-json.
+libnanoflann-dev
+nlohmann-json3-dev
+# nav2_smac_planner's Hybrid-A* uses OMPL's Dubins/Reeds-Shepp state spaces.
+libompl-dev
+libopenblas-dev
+libopencv-dev
+liborocos-kdl-dev
+libprotobuf-dev
+libspdlog-dev
+libsqlite3-dev
+libsuitesparse-dev
+libtinyxml2-dev
+libyaml-cpp-dev
+libzmq3-dev
+zlib1g-dev
+
+# --- xtensor/xsimd, which nav2_mppi_controller is written against ---
+libxsimd-dev
+libxtensor-dev
+xtl-dev
+
+# --- no rviz, no Qt, no OpenGL, no X11 ---
+#
+# There used to be a block of fifteen Qt5/Ogre/X11/OpenGL -dev packages here,
+# plus libassimp-dev, libfreetype-dev and the mesa headers above. Every one of
+# them existed for a single package: nav2_rviz_plugins, an rviz GUI panel,
+# which packaging/build-navigation-deb.sh now excises -- the board is headless,
+# and in nav2 1.3.12 the panel does not even dlopen. An exhaustive grep of
+# every package.xml in this repository and in packaging/navigation.repos finds
+# no other consumer of rviz, Qt, Ogre, OpenGL, X11, assimp or freetype, so the
+# whole block came out with it.
+#
+# The eLxr recipe carries all of them because it builds the panel. Keeping them
+# here would mean a slower image and a longer list for a future reader to
+# distrust.
+
+# --- python build tooling ---
+#
+# colcon, vcstool and the rosidl generators come from pip in
+# packaging/Dockerfile.build, the way the eLxr recipe installed them; these are
+# the pieces Debian does package.
+python3
+python3-catkin-pkg
+python3-dev
+python3-empy
+python3-lark
+python3-numpy
+python3-pip
+python3-pkg-resources
+python3-pyparsing
+python3-setuptools
+python3-venv
+python3-wheel
