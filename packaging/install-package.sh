@@ -29,5 +29,5 @@ fi
 ${sudo} apt-get update
 ${sudo} apt-get install -y "./${debs[0]}"
 
-echo "Installed ${debs[0]} under /usr/local/rosbot_navigation."
-echo "Run: source /usr/local/rosbot_navigation/local_setup.bash"
+echo "Installed ${debs[0]} under /usr/local/navigation."
+echo "Run: source /usr/local/navigation/local_setup.bash"

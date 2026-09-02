@@ -16,7 +16,7 @@
 set -euo pipefail
 
 ROS2_PREFIX=/usr/local/ros2
-PREFIX=/usr/local/rosbot_navigation
+PREFIX=/usr/local/navigation
 
 ROS2_VERSION="${ROS2_VERSION:-2.1.3}"
 
@@ -99,7 +99,7 @@ echo "=== plugin libraries load ==="
 python3 - <<'PY'
 import ctypes, glob, os, sys, xml.etree.ElementTree as ET
 
-prefix = "/usr/local/rosbot_navigation"
+prefix = "/usr/local/navigation"
 libs, failed = set(), []
 for xml in glob.glob(os.path.join(prefix, "share", "*", "*.xml")):
     try:

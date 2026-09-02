@@ -18,9 +18,12 @@
 #   package, install this one. Provides keeps anything that already
 #   `Depends: vdp-navigation` satisfiable.
 #
-#   Both packages own /usr/local/rosbot_navigation, so Conflicts is required
-#   regardless -- without it dpkg refuses the install with "trying to overwrite
-#   ... which is also in package vdp-navigation".
+#   Conflicts is kept even though the two no longer share a file. This package
+#   installs under /usr/local/navigation while vdp-navigation uses
+#   /usr/local/rosbot_navigation, so dpkg would happily hold both -- and that
+#   is the problem: two Nav2 installations, two setup files, and whichever the
+#   shell happened to source last winning. Conflicts makes apt remove the old
+#   one rather than leave an ambiguous board.
 #
 # Lines beginning with # are stripped before the control file is written.
 Package: navigation
@@ -37,7 +40,8 @@ Provides: vdp-navigation
 Description: SiMa.ai Nav2 / ROS2 Navigation packages
  The ROS 2 Jazzy Navigation2 stack, built natively for arm64 from the
  sima-vertical-solutions/navigation fork and installed under
- /usr/local/rosbot_navigation -- the prefix the rover's launch scripts source.
+ /usr/local/navigation. Note this is NOT the /usr/local/rosbot_navigation the
+ eLxr package used; anything sourcing that path has to be updated.
  .
  Built with --packages-up-to nav2_bringup nav2_route, which is the closure the
  board actually loads: the planners, controllers, costmap layers, behaviour

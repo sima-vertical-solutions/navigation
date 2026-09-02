@@ -86,7 +86,7 @@ RUN pip install --break-system-packages --no-cache-dir \
 # This image must NOT contain a prebuilt nav2. If a future edit installs
 # vdp-navigation, colcon resolves nav2_bringup against that instead of the tree
 # being built and shlibdeps attributes our SONAMEs to it.
-RUN test ! -e /usr/local/rosbot_navigation && \
+RUN test ! -e /usr/local/navigation && \
     test -z "$(find /usr/local /usr/lib -name 'libnav2_util_core.so*' -print -quit)" && \
     test -e /usr/local/ros2/setup.bash
 

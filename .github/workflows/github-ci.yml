@@ -252,7 +252,7 @@ jobs:
         if: always() && steps.stage-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
-          if [[ -d .build/navigation/stage/usr/local/rosbot_navigation ]]; then
+          if [[ -d .build/navigation/stage/usr/local/navigation ]]; then
             echo "present=true" >> "${GITHUB_OUTPUT}"
             du -sh .build/navigation/stage
           else

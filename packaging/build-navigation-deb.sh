@@ -54,7 +54,7 @@ SRC="${WORKDIR}/src"
 BUILD="${WORKDIR}/build"
 STAGE="${WORKDIR}/stage"
 SHLIBDEPS_DIR="${WORKDIR}/shlibdeps"
-INSTALL_PREFIX="/usr/local/rosbot_navigation"
+INSTALL_PREFIX="/usr/local/navigation"
 ROS2_PREFIX="/usr/local/ros2"
 
 log() { printf '\n=== %s ===\n' "$*"; }
