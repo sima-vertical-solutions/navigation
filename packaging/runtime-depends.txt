@@ -46,3 +46,31 @@ python3-yaml
 
 # --- tracing, from the eLxr rdeps list ---
 lttng-tools
+
+# Found by the install-test's ldd scan, not by any manifest. nav2 links these
+# through its dependencies and declares none of them; on a devkit they happen
+# to be present because something else pulls them in, so the gap is invisible
+# until the package is installed into a stock bookworm container.
+#
+# The first five are in the eLxr recipe's rdeps and were simply not carried
+# across. libcxsparse3 and glog are in neither list -- that recipe has the
+# same gap.
+#
+# Comments must be on their own line: this file is parsed with
+# grep -vE '^\s*(#|$)' and pasted straight into the Depends field, so an
+# inline comment would end up inside it.
+#
+# libGeographicLib.so.23        robot_localization
+libgeographiclib23
+# libGraphicsMagick++-Q16.so.12 map_server
+libgraphicsmagick++-q16-12
+# libboost_python311.so.1.74.0
+libboost-python1.74.0
+# libcholmod.so.3               suitesparse, via ceres
+libcholmod3
+# libompl.so.16                 nav2_smac_planner
+libompl16
+# libcxsparse.so.3              suitesparse
+libcxsparse3
+# libglog.so.1 -- note 0v6, not the 0v5 the soname suggests
+libgoogle-glog0v6
