@@ -103,19 +103,23 @@ esac
 
 # ------------------------------------------------------------------ version --
 #
-#   on a v* tag        -> 2.0.1
-#   anywhere else      -> 1.3.12+20260901.g<sha>
+#   always  ->  1.3.12+20260903.g<sha>
+#
+# A v* tag does NOT change this. Tags mark a SiMa platform release -- the same
+# v2.1.3 is cut across ros2, rtabmap_ros and navigation so all three install
+# from one uniform ref -- and that number says nothing about what this package
+# is. Letting it replace the version would ship nav2 1.3.12 as "2.1.3", which
+# is untrue and would collide with the eLxr vdp-navigation the rename exists to
+# get away from.
+#
+# So the tag is a pointer, not a version: `install navigation@v2.1.3` resolves
+# to a commit, and the deb under it carries nav2's own number.
 #
 # See packaging/deb-version.sh for why the base is package.xml and not
 # `git describe`.
-TAG_PREFIX="${TAG_PREFIX:-v}"
 
 if [[ -z "${PKG_VERSION:-}" ]]; then
-    if _tag="$(git -C "${REPO_ROOT}" describe --tags --exact-match --match "${TAG_PREFIX}*" 2>/dev/null)"; then
-        PKG_VERSION="${_tag#"${TAG_PREFIX}"}"
-    else
-        PKG_VERSION="$(deb_version_for "${BASE_VERSION}" "${REPO_ROOT}")"
-    fi
+    PKG_VERSION="$(deb_version_for "${BASE_VERSION}" "${REPO_ROOT}")"
 fi
 
 dpkg --validate-version "${PKG_VERSION}" 2>/dev/null \
