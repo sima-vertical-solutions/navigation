@@ -57,6 +57,21 @@ SHLIBDEPS_DIR="${WORKDIR}/shlibdeps"
 INSTALL_PREFIX="/usr/local/navigation"
 ROS2_PREFIX="/usr/local/ros2"
 
+# The CPU this deb is built FOR, which is not the CPU it is built ON: CI runs on
+# a server-class arm64 runner, the target is a Cortex-A65 (part 0xd06, armv8.2-a,
+# notably WITHOUT SVE). Left implicit, the compiler's baseline is whatever the
+# toolchain defaults to, and nothing in the build states the target at all.
+#
+# That matters twice over. nav2_mppi_controller is built on xtensor/xsimd, whose
+# vectorisation is selected at compile time from the target description; on the
+# rover it dies with SIGILL during optimizer init and takes the whole of
+# navigation down with it, since controller_server is the first node the manager
+# brings up. MPPI is disabled in the robot's params as a workaround. Naming the
+# target is also worth a few percent on the inner loops that run every cycle.
+#
+# Set TARGET_MCPU= (empty) to build a portable deb for a different part.
+TARGET_MCPU="${TARGET_MCPU:-cortex-a65}"
+
 log() { printf '\n=== %s ===\n' "$*"; }
 die() { echo "[ERROR] $*" >&2; exit 1; }
 
@@ -74,6 +89,21 @@ DEB_ARCH="$(dpkg-architecture -qDEB_HOST_ARCH)"
 
 [[ "${DEB_ARCH}" == arm64 ]] \
     || die "This package is built natively for arm64; host is ${DEB_ARCH}. Building it anywhere else would emulate the whole tree."
+
+# Checked here rather than discovered as a CMake error forty minutes in, and
+# checked at all because an unknown -mcpu is silently plausible: GCC rejects the
+# name, but only once it compiles something.
+TARGET_FLAGS=""
+if [[ -n "${TARGET_MCPU}" ]]; then
+    if echo 'int main(){return 0;}' | cc -mcpu="${TARGET_MCPU}" -x c - -o /dev/null 2>/dev/null; then
+        TARGET_FLAGS="-mcpu=${TARGET_MCPU}"
+        log "Targeting -mcpu=${TARGET_MCPU}"
+    else
+        die "This compiler does not accept -mcpu=${TARGET_MCPU}. Set TARGET_MCPU to a name it knows, or TARGET_MCPU= to build without a target."
+    fi
+else
+    log "TARGET_MCPU empty: building for the toolchain's default baseline"
+fi
 
 [[ -f "${ROS2_PREFIX}/local_setup.bash" ]] \
     || die "${ROS2_PREFIX}/local_setup.bash is missing. Install the ros2 package first."
@@ -311,7 +341,8 @@ colcon build \
         --no-warn-unused-cli \
         -DCMAKE_BUILD_TYPE=Release \
         -DBUILD_TESTING=OFF \
-        -DCMAKE_CXX_FLAGS=-Wno-error=null-dereference
+        -DCMAKE_C_FLAGS="${TARGET_FLAGS}" \
+        -DCMAKE_CXX_FLAGS="-Wno-error=null-dereference${TARGET_FLAGS:+ ${TARGET_FLAGS}}"
 
 fi   # end SKIP_COLCON
 
