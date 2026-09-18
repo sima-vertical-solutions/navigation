@@ -42,6 +42,7 @@ LifecycleManager::LifecycleManager(const rclcpp::NodeOptions & options)
   declare_parameter("node_names", rclcpp::PARAMETER_STRING_ARRAY);
   declare_parameter("autostart", rclcpp::ParameterValue(false));
   declare_parameter("bond_timeout", 4.0);
+  declare_parameter("bond_heartbeat_period", 0.10);
   declare_parameter("bond_respawn_max_duration", 10.0);
   declare_parameter("attempt_respawn_reconnection", true);
 
@@ -53,6 +54,24 @@ LifecycleManager::LifecycleManager(const rclcpp::NodeOptions & options)
   get_parameter("bond_timeout", bond_timeout_s);
   bond_timeout_ = std::chrono::duration_cast<std::chrono::milliseconds>(
     std::chrono::duration<double>(bond_timeout_s));
+
+  get_parameter("bond_heartbeat_period", bond_heartbeat_period_);
+  if (bond_heartbeat_period_ <= 0.0) {
+    RCLCPP_WARN(
+      get_logger(),
+      "bond_heartbeat_period must be positive (got %.3f s); falling back to 0.10 s. "
+      "To switch bonds off entirely, set bond_timeout to 0.",
+      bond_heartbeat_period_);
+    bond_heartbeat_period_ = 0.10;
+  } else if (bond_timeout_s > 0.0 && bond_heartbeat_period_ > bond_timeout_s / 2.0) {
+    // Fewer than two heartbeats per timeout window means a single late or dropped
+    // heartbeat can tear the whole managed stack down.
+    RCLCPP_WARN(
+      get_logger(),
+      "bond_heartbeat_period (%.3f s) leaves fewer than two heartbeats per "
+      "bond_timeout (%.3f s); a single missed heartbeat may fail the bond.",
+      bond_heartbeat_period_, bond_timeout_s);
+  }
 
   double respawn_timeout_s;
   get_parameter("bond_respawn_max_duration", respawn_timeout_s);
@@ -221,7 +240,7 @@ LifecycleManager::createBondConnection(const std::string & node_name)
     bond_map_[node_name] =
       std::make_shared<bond::Bond>("bond", node_name, shared_from_this());
     bond_map_[node_name]->setHeartbeatTimeout(timeout_s);
-    bond_map_[node_name]->setHeartbeatPeriod(0.10);
+    bond_map_[node_name]->setHeartbeatPeriod(bond_heartbeat_period_);
     bond_map_[node_name]->start();
     if (
       !bond_map_[node_name]->waitUntilFormed(
