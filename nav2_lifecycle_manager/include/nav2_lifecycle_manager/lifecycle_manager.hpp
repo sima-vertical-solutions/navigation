@@ -232,6 +232,17 @@ protected:
   rclcpp::TimerBase::SharedPtr bond_timer_;
   rclcpp::TimerBase::SharedPtr bond_respawn_timer_;
   std::chrono::milliseconds bond_timeout_;
+  // How often THIS side of each bond sends its heartbeat. The managed node's half of
+  // the same link is already parameterized (nav2_util::LifecycleNode declares
+  // bond_heartbeat_period); this is the manager's half, which used to be hardcoded.
+  double bond_heartbeat_period_;
+
+  // Kept so the destructor can take the callback back out of the Context, as
+  // nav2_util::LifecycleNode does. Without that, a manager loaded into a component
+  // container crashes the process at exit: the container unloads this library
+  // before the Context is destroyed, and destroying the leftover callback then
+  // runs code that is no longer mapped.
+  std::unique_ptr<rclcpp::PreShutdownCallbackHandle> rcl_preshutdown_cb_handle_{nullptr};
 
   // A map of all nodes to check bond connection
   std::map<std::string, std::shared_ptr<bond::Bond>> bond_map_;
