@@ -232,6 +232,10 @@ protected:
   rclcpp::TimerBase::SharedPtr bond_timer_;
   rclcpp::TimerBase::SharedPtr bond_respawn_timer_;
   std::chrono::milliseconds bond_timeout_;
+  // How often THIS side of each bond sends its heartbeat. The managed node's half of
+  // the same link is already parameterized (nav2_util::LifecycleNode declares
+  // bond_heartbeat_period); this is the manager's half, which used to be hardcoded.
+  double bond_heartbeat_period_;
 
   // A map of all nodes to check bond connection
   std::map<std::string, std::shared_ptr<bond::Bond>> bond_map_;
