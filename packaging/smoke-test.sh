@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
-# Smoke-test the built navigation package in a clean Debian bookworm container.
+# Smoke-test the built navigation package in a clean Debian trixie container.
 #
 #   docker run --rm \
 #     --volume "${PWD}/dist:/dist:ro" \
 #     --volume "${PWD}/packaging:/packaging:ro" \
-#     debian:bookworm /packaging/smoke-test.sh
+#     debian:trixie /packaging/smoke-test.sh
 #
 # This lives in a file rather than inline in the workflow because inline it
 # needs three levels of quoting -- the YAML block, `bash -c` for docker run,
@@ -18,7 +18,7 @@ set -euo pipefail
 ROS2_PREFIX=/usr/local/ros2
 PREFIX=/usr/local/navigation
 
-ROS2_VERSION="${ROS2_VERSION:-2.1.3}"
+ROS2_VERSION="${ROS2_VERSION:-3.0.0}"
 
 echo "=== installing ROS 2 ${ROS2_VERSION} from the production Vulcan store ==="
 # navigation declares Depends: ros2, and this container has no apt source that

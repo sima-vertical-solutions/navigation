@@ -1,6 +1,6 @@
 # Build environment for the nav2 Debian package.
 #
-# Stock Debian bookworm and nothing else. Every build dependency comes from
+# Stock Debian trixie and nothing else. Every build dependency comes from
 # Debian; ROS 2 comes from the production Vulcan store over https. There is no
 # eLxr apt source here and no repo.sima.ai apt source, so there is no apt pin
 # either.
@@ -32,7 +32,7 @@
 # is what lets the colcon invocation in build-navigation-deb.sh drop the ~25
 # cross-compilation -D flags the eLxr recipe needed.
 
-FROM debian:bookworm
+FROM debian:trixie
 
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive
@@ -56,7 +56,7 @@ RUN apt-get update --allow-releaseinfo-change && \
 # it up through /root/.bash_profile and a shell alias. A Dockerfile RUN is
 # neither a login shell nor an interactive one, so it sees neither -- hence the
 # absolute path to the binary rather than `sima-cli`.
-ARG ROS2_VERSION=2.1.3
+ARG ROS2_VERSION=3.0.0
 
 RUN curl -fsSL https://artifacts.neat.sima.ai/sima-cli/linux-mac.sh | bash
 
