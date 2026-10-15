@@ -50,7 +50,7 @@ lttng-tools
 # Found by the install-test's ldd scan, not by any manifest. nav2 links these
 # through its dependencies and declares none of them; on a devkit they happen
 # to be present because something else pulls them in, so the gap is invisible
-# until the package is installed into a stock bookworm container.
+# until the package is installed into a stock trixie container.
 #
 # The first five are in the eLxr recipe's rdeps and were simply not carried
 # across. libcxsparse3 and glog are in neither list -- that recipe has the
@@ -60,17 +60,17 @@ lttng-tools
 # grep -vE '^\s*(#|$)' and pasted straight into the Depends field, so an
 # inline comment would end up inside it.
 #
-# libGeographicLib.so.23        robot_localization
-libgeographiclib23
-# libGraphicsMagick++-Q16.so.12 map_server
-libgraphicsmagick++-q16-12
-# libboost_python311.so.1.74.0
-libboost-python1.74.0
-# libcholmod.so.3               suitesparse, via ceres
-libcholmod3
-# libompl.so.16                 nav2_smac_planner
-libompl16
-# libcxsparse.so.3              suitesparse
-libcxsparse3
-# libglog.so.1 -- note 0v6, not the 0v5 the soname suggests
-libgoogle-glog0v6
+# libGeographicLib.so.26        robot_localization
+libgeographiclib26
+# libGraphicsMagick++-Q16.so.12 map_server -- t64, the 64-bit time_t rename
+libgraphicsmagick++-q16-12t64
+# libboost_python313.so.1.83.0
+libboost-python1.83.0
+# libcholmod.so.5               suitesparse, via ceres
+libcholmod5
+# libompl.so.17                 nav2_smac_planner
+libompl17
+# libcxsparse.so.4              suitesparse
+libcxsparse4
+# libglog.so.1 -- note 0v6t64, not the 0v5 the soname suggests
+libgoogle-glog0v6t64
