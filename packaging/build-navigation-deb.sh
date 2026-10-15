@@ -227,11 +227,10 @@ fi
 #      which is where stigabtree and the bringup packages already keep their
 #      nav2 params -- not baked into a generic nav2 deb where no one can see it.
 #
-# Its only build-relevant hunks are two warning suppressions, and the one that
-# matters (-Wno-null-dereference for nav2_mppi_controller) is covered by the
-# -Wno-error=null-dereference the recipe already passes on the colcon command
-# line below. The other, -Wno-array-bounds, is on a unit test, and
-# BUILD_TESTING is OFF.
+# Its only build-relevant hunks are two warning suppressions, and both are now
+# covered by the -Wno-error= flags the recipe passes on the colcon command line
+# below. array-bounds was test-only under GCC 12; GCC 14 on trixie fires it in
+# nav2_costmap_2d's denoise/image_processing.hpp, which is library code.
 
 vcs import --input "${REPO_ROOT}/packaging/navigation.repos" "${SRC}"
 
@@ -311,7 +310,7 @@ colcon build \
         --no-warn-unused-cli \
         -DCMAKE_BUILD_TYPE=Release \
         -DBUILD_TESTING=OFF \
-        -DCMAKE_CXX_FLAGS=-Wno-error=null-dereference
+        -DCMAKE_CXX_FLAGS="-Wno-error=null-dereference -Wno-error=array-bounds"
 
 fi   # end SKIP_COLCON
 
