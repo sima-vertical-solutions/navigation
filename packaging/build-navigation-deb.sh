@@ -384,14 +384,20 @@ echo "${#elf_files[@]} ELF files"
 # --ignore-missing-info because ROS 2 installs into /usr/local without a dpkg
 # shlibs entry, so shlibdeps cannot attribute its SONAMEs to a package. `ros2`
 # is declared by hand in runtime-depends.txt instead.
+# stderr is kept: an empty result used to be indistinguishable from a silent
+# failure, and the deb shipped with only the hand-declared deps.
 raw="$(cd "${SHLIBDEPS_DIR}" && dpkg-shlibdeps -O --ignore-missing-info \
         -l"${STAGE}${INSTALL_PREFIX}/lib" \
         -l/usr/local/lib \
         -l"${ROS2_PREFIX}/lib" \
-        "${elf_files[@]}" 2>/dev/null || true)"
+        "${elf_files[@]}" || true)"
 
 SHLIB_DEPENDS="$(sed -n 's/^shlibs:Depends=//p' <<< "${raw}" | head -1)"
 echo "shlibdeps: ${SHLIB_DEPENDS:-<none>}"
+# 237 ELF files cannot legitimately need nothing. Empty means shlibdeps failed,
+# and a deb carrying only runtime-depends.txt installs and then fails its own
+# ldd scan -- or worse, publishes.
+[[ -n "${SHLIB_DEPENDS}" ]] || die "dpkg-shlibdeps produced no dependencies (see its output above)."
 
 # paste -d takes a LIST of delimiters and cycles through them, so -d ', '
 # alternates comma and space and yields "ros2,lttng-tools python3-numpy".

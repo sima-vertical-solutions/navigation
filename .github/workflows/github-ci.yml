@@ -150,7 +150,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .build/navigation/stage
-          key: nav2-stage-${{ steps.stage-key.outputs.src_hash }}-${{ hashFiles('packaging/navigation.repos', 'packaging/build-navigation-deb.sh', 'packaging/Dockerfile.build', 'packaging/build-depends.txt') }}
+          key: nav2-stage-${{ steps.stage-key.outputs.src_hash }}-${{ hashFiles('packaging/navigation.repos', 'packaging/build-navigation-deb.sh', 'packaging/Dockerfile.build', 'packaging/build-depends.txt', 'packaging/runtime-depends.txt', 'packaging/control.in') }}
 
       - name: Reuse the staged tree
         if: steps.stage-cache.outputs.cache-hit == 'true'
@@ -265,7 +265,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: .build/navigation/stage
-          key: nav2-stage-${{ steps.stage-key.outputs.src_hash }}-${{ hashFiles('packaging/navigation.repos', 'packaging/build-navigation-deb.sh', 'packaging/Dockerfile.build', 'packaging/build-depends.txt') }}
+          key: nav2-stage-${{ steps.stage-key.outputs.src_hash }}-${{ hashFiles('packaging/navigation.repos', 'packaging/build-navigation-deb.sh', 'packaging/Dockerfile.build', 'packaging/build-depends.txt', 'packaging/runtime-depends.txt', 'packaging/control.in') }}
 
   test-install:
     name: Install the package in clean trixie
